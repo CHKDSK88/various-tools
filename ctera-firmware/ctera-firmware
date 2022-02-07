@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+usage() {
+	printf "Usage: %s -k kernel -i initrd -v <1-2> -b bootargs -o output.firm" "$(basename "$0")"
+	printf "\n\t-b ==> bootargs string"
+	printf "\n\t-i ==> path to initrd uImage file"
+	printf "\n\t-k ==> path to kernel uImage file"
+	printf "\n\t-o ==> output .firm file"
+	printf "\n\t-v ==> select C200 version (1 or 2)\n"
+	return 1
+}
+
+while getopts "b:i:hk:o:v:" arg; do
+	case $arg in
+		b)
+			BOOTARGS=$OPTARG
+			;;
+		i)
+			INITRD=$OPTARG
+			;;
+		h)
+			usage
+			;;
+		k)
+			KERNEL=$OPTARG
+			;;
+		o)
+			OUTPUT=$OPTARG
+			;;
+		v)
+			VERSION=$OPTARG
+			;;
+		*)
+			usage
+	esac
+done
+
+if [ -z "${BOOTARGS}" ] || [ -z "${INITRD}" ] || [ -z "${KERNEL}" ] || \
+[ -z "${OUTPUT}" ] || [ -z "${VERSION}" ]; then
+	usage
+fi
+
+tmpdir=$(mktemp -d)
+
+if [[ $VERSION == 1 ]]; then
+	# Prepare header and trailer file for kernel
+	echo "# CTera firmware information file" > $tmpdir/header || exit 1
+	echo "image_type=kernel" >> $tmpdir/header
+	echo "arch=Kirkwood" >> $tmpdir/header
+	echo "board=Any" >> $tmpdir/header
+	echo "version=3.1.22.30669" >> $tmpdir/header
+	echo "kernel_cmd=${BOOTARGS}" >> $tmpdir/header
+	echo "date=$(date)" >> $tmpdir/header
+elif [[ $VERSION == 2 ]]; then
+	# Prepare header and trailer file for kernel
+	echo "# CTera firmware information file" > $tmpdir/header || exit 1
+	echo "image_type=kernel" >> $tmpdir/header
+	echo "arch=ARM" >> $tmpdir/header
+	echo "board=2Drive_A" >> $tmpdir/header
+	echo "version=5.5.165.61499" >> $tmpdir/header
+	echo "kernel_cmd=${BOOTARGS}" >> $tmpdir/header
+	echo "date=$(date)" >> $tmpdir/header
+else
+	echo "UNKNOWN VERSION!"
+	exit 1
+fi
+
+cp $KERNEL $tmpdir/kernel || exit 1
+
+echo "MD5=$(cat $tmpdir/header $tmpdir/kernel | md5sum)" > $tmpdir/trailer || exit 1
+
+tar -H gnu -C $tmpdir -cf $tmpdir/output.tar header kernel trailer || exit 1
+
+rm -rf $tmpdir/kernel $tmpdir/header $tmpdir/trailer || exit 1
+
+if [[ $VERSION == 1 ]]; then
+	# Prepare header and trailer file for fake romdisk
+	echo "# CTera firmware information file" > $tmpdir/header || exit 1
+	echo "image_type=romdisk" >> $tmpdir/header
+	echo "initrd=yes" >> $tmpdir/header
+	echo "arch=Kirkwood" >> $tmpdir/header
+	echo "board=Any" >> $tmpdir/header
+	echo "version=3.1.22.30669" >> $tmpdir/header
+	echo "date=$(date)" >> $tmpdir/header
+elif [[ $VERSION == 2 ]]; then
+	# Prepare header and trailer file for fake romdisk
+	echo "# CTera firmware information file" > $tmpdir/header || exit 1
+	echo "image_type=romdisk" >> $tmpdir/header
+	echo "initrd=yes" >> $tmpdir/header
+	echo "arch=ARM" >> $tmpdir/header
+	echo "board=2Drive_A" >> $tmpdir/header
+	echo "version=5.5.165.61499" >> $tmpdir/header
+	echo "date=$(date)" >> $tmpdir/header
+else
+	echo "UNKNOWN VERSION!"
+	exit 1
+fi
+
+cp $INITRD $tmpdir/romdisk || exit 1
+
+echo "MD5=$(cat $tmpdir/header $tmpdir/romdisk | md5sum)" > $tmpdir/trailer || exit 1
+
+tar -H gnu -C $tmpdir -rf $tmpdir/output.tar header romdisk trailer || exit 1
+rm -rf $tmpdir/romdisk $tmpdir/header $tmpdir/trailer || exit 1
+
+mv $tmpdir/output.tar $OUTPUT || exit 1
+
+echo "Done"
+
